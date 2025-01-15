@@ -153,7 +153,7 @@ resource "aws_lb_listener" "frontend" {
 # --- Front-End Auto Scaling Group ---
 resource "aws_launch_template" "frontend" {
   name_prefix   = "frontend-"
-  image_id      = data.aws_ami.ec2_image.image_id 
+  image_id      = data.aws_ami.ec2_image.image_id
   instance_type = "t2.micro"
 
   network_interfaces {
@@ -238,6 +238,7 @@ resource "aws_db_instance" "database" {
   publicly_accessible    = false
   vpc_security_group_ids = [aws_security_group.db_sg.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
+  skip_final_snapshot    = true
 }
 
 resource "aws_db_subnet_group" "main" {
