@@ -1,8 +1,4 @@
-provider "aws" {
-  region = "us-east-1"
-}
-
-# VPC
+# Create new VPC
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -12,7 +8,7 @@ resource "aws_vpc" "main" {
   }
 }
 
-# Subnets
+# Create new Subnets
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
@@ -25,7 +21,7 @@ resource "aws_subnet" "public" {
   }
 }
 
-# Internet Gateway
+# Create new Internet Gateway
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
 
@@ -85,22 +81,12 @@ resource "aws_security_group" "app_sg" {
   }
 }
 
-# find ami image
-data "aws_ami" "ec2_image" {
-  most_recent = true
-
-  filter {
-    # AMI name = debian-12-amd64-20231013-1532
-    name   = "name"
-    values = ["debian-12-amd64-20231013-1532"]
-  }
-}
-
 # Launch Configuration
 resource "aws_launch_template" "app" {
   name_prefix   = "ha-cluster-"
   image_id      = data.aws_ami.ec2_image.id
   instance_type = "t2.micro"
+  key_name      = "terra-key"
 
   network_interfaces {
     associate_public_ip_address = true
@@ -180,6 +166,3 @@ resource "aws_autoscaling_attachment" "asg_attachment" {
   autoscaling_group_name = aws_autoscaling_group.app.name
   lb_target_group_arn    = aws_lb_target_group.app.arn
 }
-
-# Data Source for Availability Zones
-data "aws_availability_zones" "available" {}
