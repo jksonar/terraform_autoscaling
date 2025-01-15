@@ -6,7 +6,7 @@ data "aws_ami" "ec2_image" {
   most_recent = true
   filter {
     # find with image id
-    name = "image-id"
-    values = [ "ami-064519b8c76274859" ]
+    name   = "image-id"
+    values = ["ami-064519b8c76274859"]
   }
 }

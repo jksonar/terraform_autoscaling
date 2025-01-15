@@ -1,14 +1,14 @@
-# Create new VPC
+# --- VPC ---
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
   tags = {
-    Name = "ha-cluster-vpc"
+    Name = "ha-vpc"
   }
 }
 
-# Create new Subnets
+# --- Subnets ---
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
@@ -21,16 +21,23 @@ resource "aws_subnet" "public" {
   }
 }
 
-# Create new Internet Gateway
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main.id
+resource "aws_subnet" "private" {
+  count             = 2
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 2)
+  availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
-    Name = "ha-cluster-igw"
+    Name = "private-subnet-${count.index}"
   }
 }
 
-# Route Table
+# --- Internet Gateway ---
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+}
+
+# --- Route Tables ---
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -38,33 +45,21 @@ resource "aws_route_table" "public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw.id
   }
-
-  tags = {
-    Name = "public-route-table"
-  }
 }
 
-# Associate Subnets with Route Table
 resource "aws_route_table_association" "public" {
   count          = 2
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
 
-# Security Group
-resource "aws_security_group" "app_sg" {
+# --- Security Groups ---
+resource "aws_security_group" "frontend_sg" {
   vpc_id = aws_vpc.main.id
 
   ingress {
     from_port   = 80
     to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -77,92 +72,180 @@ resource "aws_security_group" "app_sg" {
   }
 
   tags = {
-    Name = "app-sg"
+    Name = "frontend-sg"
   }
 }
 
-# Launch Configuration
-resource "aws_launch_template" "app" {
-  name_prefix   = "ha-cluster-"
-  image_id      = data.aws_ami.ec2_image.id
-  instance_type = "t2.micro"
-  key_name      = "terra-key"
+resource "aws_security_group" "backend_sg" {
+  vpc_id = aws_vpc.main.id
 
-  network_interfaces {
-    associate_public_ip_address = true
-    security_groups             = [aws_security_group.app_sg.id]
+  ingress {
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = tolist([for subnet in aws_subnet.private : subnet.cidr_block])
   }
 
-  tag_specifications {
-    resource_type = "instance"
-
-    tags = {
-      Name = "ha-cluster-instance"
-    }
-  }
-}
-
-# Auto Scaling Group
-resource "aws_autoscaling_group" "app" {
-  desired_capacity    = 2
-  max_size            = 3
-  min_size            = 1
-  vpc_zone_identifier = aws_subnet.public[*].id
-  launch_template {
-    id      = aws_launch_template.app.id
-    version = "$Latest"
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tag {
-    key                 = "Name"
-    value               = "ha-cluster-instance"
-    propagate_at_launch = true
+  tags = {
+    Name = "backend-sg"
   }
 }
 
-# Load Balancer
-resource "aws_lb" "app" {
-  name               = "ha-cluster-lb"
-  internal           = false
+resource "aws_security_group" "db_sg" {
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    from_port   = 3306
+    to_port     = 3306
+    protocol    = "tcp"
+    cidr_blocks = tolist([for subnet in aws_subnet.private : subnet.cidr_block])
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "db-sg"
+  }
+}
+
+# --- Front-End Load Balancer ---
+resource "aws_lb" "frontend" {
+  name               = "frontend-lb"
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.app_sg.id]
+  security_groups    = [aws_security_group.frontend_sg.id]
   subnets            = aws_subnet.public[*].id
 
   tags = {
-    Name = "ha-cluster-lb"
+    Name = "frontend-lb"
   }
 }
 
-# Target Group
-resource "aws_lb_target_group" "app" {
-  name     = "ha-cluster-target-group"
+resource "aws_lb_target_group" "frontend" {
+  name     = "frontend-tg"
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
-
-  health_check {
-    path                = "/"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-  }
 }
 
-# Listener
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.app.arn
+resource "aws_lb_listener" "frontend" {
+  load_balancer_arn = aws_lb.frontend.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.app.arn
+    target_group_arn = aws_lb_target_group.frontend.arn
   }
 }
 
-# Attach Instances to Target Group
-resource "aws_autoscaling_attachment" "asg_attachment" {
-  autoscaling_group_name = aws_autoscaling_group.app.name
-  lb_target_group_arn    = aws_lb_target_group.app.arn
+# --- Front-End Auto Scaling Group ---
+resource "aws_launch_template" "frontend" {
+  name_prefix   = "frontend-"
+  image_id      = data.aws_ami.ec2_image.image_id 
+  instance_type = "t2.micro"
+
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [aws_security_group.frontend_sg.id]
+  }
+
+  tags = {
+    Name = "frontend-instance"
+  }
 }
+
+resource "aws_autoscaling_group" "frontend" {
+  desired_capacity    = 2
+  max_size            = 3
+  min_size            = 1
+  vpc_zone_identifier = aws_subnet.public[*].id
+
+  launch_template {
+    id      = aws_launch_template.frontend.id
+    version = "$Latest"
+  }
+
+  target_group_arns = [aws_lb_target_group.frontend.arn]
+}
+
+# --- Back-End Load Balancer ---
+resource "aws_lb" "backend" {
+  name               = "backend-lb"
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.backend_sg.id]
+  subnets            = aws_subnet.private[*].id
+}
+
+resource "aws_lb_target_group" "backend" {
+  name     = "backend-tg"
+  port     = 8080
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+}
+
+# --- Back-End Auto Scaling Group ---
+resource "aws_launch_template" "backend" {
+  name_prefix   = "backend-"
+  image_id      = data.aws_ami.ec2_image.image_id
+  instance_type = "t2.micro"
+
+  network_interfaces {
+    associate_public_ip_address = false
+    security_groups             = [aws_security_group.backend_sg.id]
+  }
+
+  tags = {
+    Name = "backend-instance"
+  }
+}
+
+resource "aws_autoscaling_group" "backend" {
+  desired_capacity    = 2
+  max_size            = 3
+  min_size            = 1
+  vpc_zone_identifier = aws_subnet.private[*].id
+
+  launch_template {
+    id      = aws_launch_template.backend.id
+    version = "$Latest"
+  }
+
+  target_group_arns = [aws_lb_target_group.backend.arn]
+}
+
+# --- Database ---
+resource "aws_db_instance" "database" {
+  allocated_storage      = 10
+  engine                 = "mysql"
+  engine_version         = "8.0"
+  instance_class         = "db.t3.micro"
+  db_name                = "mydb"
+  username               = "admin"
+  password               = "Mtfh7BQDjs"
+  multi_az               = true
+  publicly_accessible    = false
+  vpc_security_group_ids = [aws_security_group.db_sg.id]
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+}
+
+resource "aws_db_subnet_group" "main" {
+  name       = "db-subnet-group"
+  subnet_ids = aws_subnet.private[*].id
+
+  tags = {
+    Name = "db-subnet-group"
+  }
+}
+
