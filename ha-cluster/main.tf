@@ -1,3 +1,9 @@
+
+# --- Provider ---
+provider "aws" {
+  region = var.region
+}
+
 # --- VPC ---
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
@@ -153,8 +159,8 @@ resource "aws_lb_listener" "frontend" {
 # --- Front-End Auto Scaling Group ---
 resource "aws_launch_template" "frontend" {
   name_prefix   = "frontend-"
-  image_id      = data.aws_ami.ec2_image.image_id
-  instance_type = "t2.micro"
+  image_id      = var.ami_id
+  instance_type = var.instance_type
 
   network_interfaces {
     associate_public_ip_address = true
@@ -198,8 +204,8 @@ resource "aws_lb_target_group" "backend" {
 # --- Back-End Auto Scaling Group ---
 resource "aws_launch_template" "backend" {
   name_prefix   = "backend-"
-  image_id      = data.aws_ami.ec2_image.image_id
-  instance_type = "t2.micro"
+  image_id      = var.ami_id
+  instance_type = var.instance_type
 
   network_interfaces {
     associate_public_ip_address = false
@@ -231,9 +237,9 @@ resource "aws_db_instance" "database" {
   engine                 = "mysql"
   engine_version         = "8.0"
   instance_class         = "db.t3.micro"
-  db_name                = "mydb"
-  username               = "admin"
-  password               = "Mtfh7BQDjs"
+  db_name                = var.database_name
+  username               = var.database_username
+  password               = var.database_password
   multi_az               = true
   publicly_accessible    = false
   vpc_security_group_ids = [aws_security_group.db_sg.id]
