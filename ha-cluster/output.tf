@@ -14,6 +14,6 @@ output "lb_backend_zone" {
     value = aws_lb.backend.zone_id
 }
 
-output "db_instance_name" {
+output "db_instance_endpoint_share" {
     value = aws_db_instance.database.endpoint
 }

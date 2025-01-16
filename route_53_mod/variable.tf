@@ -1,5 +1,5 @@
 variable "domain_name" {
-  description = "Domain name for DNS"
+  type = string
 }
 
 variable "lb_frontend_read" {
@@ -15,5 +15,9 @@ variable "lb_backend_read" {
 }
 
 variable "lb_backend_zone" {
+  type = string
+}
+
+variable "db_A_record" {
   type = string
 }

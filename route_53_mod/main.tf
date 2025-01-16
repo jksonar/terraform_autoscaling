@@ -1,12 +1,12 @@
 # --- Route 53 Hosted Zone ---
 resource "aws_route53_zone" "main" {
-  name = var.domain_name # Replace with your domain name
+  name = var.domain_name 
 }
 
 # --- Front-End DNS Record ---
 resource "aws_route53_record" "frontend" {
   zone_id = aws_route53_zone.main.id
-  name    = "www.${var.domain_name}" # Front-end domain
+  name    = "www.${var.domain_name}"
   type    = "A"
 
   alias {
@@ -19,7 +19,7 @@ resource "aws_route53_record" "frontend" {
 # --- Back-End DNS Record ---
 resource "aws_route53_record" "backend" {
   zone_id = aws_route53_zone.main.id
-  name    = "api.${var.domain_name}" # Back-end domain
+  name    = "api.${var.domain_name}"
   type    = "A"
 
   alias {
@@ -32,8 +32,8 @@ resource "aws_route53_record" "backend" {
 # --- Database Record (Optional) ---
 resource "aws_route53_record" "database" {
   zone_id = aws_route53_zone.main.id
-  name    = "db.${var.domain_name}" # Optional: Internal DNS for DB (not public)
+  name    = "db.${var.domain_name}"
   type    = "CNAME"
   ttl     = 300
-  records = [var.lb_backend_zone]
+  records = [var.db_A_record]
 }
